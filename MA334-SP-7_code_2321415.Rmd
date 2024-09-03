@@ -1,0 +1,373 @@
+---
+title: "Housing Data Statistical Analysis"
+author: "M. Ashfaq Tahir"
+date: "2024-04-14"
+output: pdf_document
+
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+```
+
+
+```{r data_read, echo=FALSE, error=FALSE, warning=FALSE,message=FALSE}
+
+library(dplyr)
+library(knitr)
+library(ggplot2)
+library(caret)
+library(fastDummies)
+library(MASS)
+library(gridExtra)
+
+data <- read.csv("C:/Users/i0801/OneDrive/Documents/University/Data analysis and statistics with R/Final project/MA334-SP-7_TAHIR_MUHAMMAD_ASHFAQ_2321415 (1).csv")
+
+```
+
+In this assignment, we will analyze the home sales data in the Baton Rouge area of Los Angeles state of the US during mid-2005. The basic theme of the analysis revolves around the effects of different factors such as: area of the house, having a pool, fireplace, or a waterfront property on the property's price.
+
+Analyzed data is the subset of data sourced from Dr. Kelley Pace, Department of Finance, Louisiana State University.
+
+### 1. Data exploration
+
+```{r Data_Exploration,echo=FALSE, error=FALSE, warning=FALSE,message=FALSE}
+
+# Data set exploration
+variable <- colnames(data[1:10])
+type <- c("Continuous","Continuous","Discrete","Discrete","Continuous","Nominal (Categorical)", "Nominal (Categorical)","Nominal (Categorical)","Nominal (Categorical)","Continuous")
+data_table <- data.frame(Variable = variable, Type = type)
+filtered_table <- data_table %>% filter(Type %in% c("Continuous", "Discrete", "Nominal (Categorical)")) #Filter only the rows with the specified types
+
+combined_table <- filtered_table %>% group_by(Type) %>% summarise(Variable = paste(Variable, collapse = ", ")) # Combine the corresponding colnames into the same row
+
+# Trimmed price
+n <- nrow(data)
+top_trim_count <- round(0.022 * n)
+bottom_trim_count <- round(0.067 * n)
+sorted_data <- data[order(data$price), ]
+trimmed_data <- sorted_data[(top_trim_count + 1):(n - bottom_trim_count),]
+trimmed_mean <- mean(trimmed_data$price)
+
+summary_price <- summary(data$price)  # Compute summary statistics for data$price
+summary_trimmed_price <- summary(trimmed_data$price) # Summary statistics trimmed_price
+summary_trimmed_price_table <- t(as.matrix(format(cbind(Price = summary_price, trimmed_Price = summary_trimmed_price), scientific = FALSE)))
+
+# Price vs trimmed_price comparison plots
+price_boxplot <- ggplot(data, aes(y = price)) + geom_boxplot() + labs(title = "Price") +theme_minimal()+ theme(plot.title = element_text(size = 9,face = "bold"),axis.title.y = element_text(size = 8)) 
+
+trimmed_price_boxplot <- ggplot(trimmed_data, aes(y = price)) +geom_boxplot() +labs(title = "trimmed Price")+ theme_minimal() + theme(plot.title = element_text(size = 9,face = "bold"),axis.title.y = element_text(size = 8)) 
+
+price_histogram <- ggplot(data, aes(x = price)) +geom_histogram(bins=32) +labs(title = "Price") +theme_minimal()+ theme(plot.title = element_text(size = 9,face = "bold"),axis.title.y = element_text(size = 8),axis.title.x = element_text(size = 8)) 
+
+trimmed_price_histogram <- ggplot(trimmed_data, aes(x = price)) +geom_histogram(bins=32)+scale_x_continuous(n.breaks = 3) +labs(title = "trimmed Price") +theme_minimal() + theme(plot.title = element_text(size = 9,face = "bold"),axis.title.y = element_text(size = 8),axis.title.x = element_text(size = 8))
+
+# Correlation matrix
+correlation_matrix <- cor(trimmed_data[, c("price","sqft","bedrooms", "baths")])
+
+```
+
+
+
+Let's start by looking at the given data, a brief summary of the data is given in Table 1. There are total `r ncol(data[1:10])` variables and `r nrow(data)` observations, and there are no missing values in our data. House price is given in dollars by the "price" variable. The "sqft" variable defines the area in square feet for the house. The age of the house (how old the house is in years) and the number of days the house has been on the market are given by "age" and "dom" respectively. Number of the bedrooms and bathrooms is given by "bedrooms" and "baths". Three categorical variables "pool", "fireplace" and "waterfront" have values 1 and 0 depending upon if the house has these features. There are around eleven different styles (Traditional, Townhouse, Ranch, etc) denoted by numbers 1 to 11. 
+
+
+```{r Data_summary_table, echo=FALSE, error=FALSE, warning=FALSE, message=FALSE}
+
+combined_table %>% knitr::kable( col.names= colnames(combined_table),align = "c", caption="Variable type",booktabs = TRUE)
+
+```
+
+In the Figure 1 house price is plotted and we can see a few outliers on the upper end of the data, this will cause skewness in our data. We can deal with the outliers by trimming our data. This takes care of the ouliers on both ends of the data and helps us get a more realistic picture. Table 2 shows the summary of house prices before and after trimming our data.
+
+```{r PriceVStrimmed_plot, echo=FALSE, error=FALSE, warning=FALSE,message=FALSE,fig.width=8, fig.height=1.5, fig.align='center' , fig.cap="\\label{fig:fig1}Price"}
+
+grid.arrange(price_boxplot, trimmed_price_boxplot, price_histogram, trimmed_price_histogram, ncol = 4, nrow = 1)
+
+```
+
+```{r Trimmed_price_table,echo=FALSE, error=FALSE, warning=FALSE,message=FALSE}
+
+summary_trimmed_price_table %>% knitr::kable( col.names= colnames(summary_trimmed_price_table),align = "c",caption="Price vs Trimmed price") 
+
+```
+
+While looking at the correlations, there are only a few significant correlations amongst the variables. Table 3 shows the noteworthy positive correlations, there are no significant negative correlations hence they are not included in the table. The highest correlation is between price and the area of the house, which is very understandable, larger a house, greater will be its value. Second highest correlation is between the number of bathrooms and area of the house, third highest is between the number of bedrooms and area of the house and lastly the number of bathrooms and area of the house.
+
+```{r Correlation_table,echo=FALSE, error=FALSE, warning=FALSE, message=FALSE}
+
+correlation_matrix %>% knitr::kable( col.names= colnames(correlation_matrix),align = "c", caption= "Significant correlations table")
+
+```
+
+### 2. Probability, probability distributions and confidence intervals
+
+```{r Probability,echo=FALSE, error=FALSE, warning=FALSE,message=FALSE}
+#Probability a house has a pool
+prob_pool <- sum(trimmed_data$pool == 1) / nrow(trimmed_data) 
+
+#Conditional probability a house has a fireplace, given that it has a pool
+prob_fire_given_pool <- sum(trimmed_data$fireplace == 1 & trimmed_data$pool == 1) / sum(trimmed_data$pool == 1) 
+
+#Probability of at least 3 houses with a pool in a sample of 10
+probability_at_least_3_pools <- pbinom(2, 10, prob_pool, lower.tail = FALSE) 
+
+n <- 10  # Number of trials
+p <- prob_pool  # Probability of success (probability that a house has a pool)
+x <- 0:n
+probabilities <- dbinom(x, size = n, prob = p)
+cumulative_probabilities <- pbinom(x - 1, size = n, prob = p) # the cumulative probabilities
+plot_data <- data.frame(x = x, probabilities = probabilities)
+
+Probability_distribution_plot <- ggplot(plot_data, aes(x = as.factor(x), y = probabilities)) +
+  geom_bar(stat = "identity") +
+  labs(x = "Number of Houses with a Pool", y = "Probability") +
+  geom_vline(xintercept = 3, linetype = "dashed", color = "red") +
+  geom_text(aes(label = paste("P(X >= 3)")),x = 3.5, y = 0.1, color = "red", hjust = 0) + theme_minimal()
+
+# 95% confidence interval
+
+mean_trimmed_price <- mean(trimmed_data$price)
+sd_trimmed_price <- sd(trimmed_data$price)
+length_trimmed_price <- length(trimmed_data$price)
+alpha <- 1-0.95 # Confidence level is 95%
+p <- 1-(alpha/2)
+t <- qt(p,df=length_trimmed_price-1)
+confidence_interval <- c(mean_trimmed_price - t * sd_trimmed_price / sqrt(length_trimmed_price) , mean_trimmed_price + t * sd_trimmed_price / sqrt(length_trimmed_price))
+
+formatted_confidence_interval <- format(confidence_interval, scientific = FALSE)
+
+
+```
+
+In this part we are going to answer a few questions raised in the assignment statement regarding probabilities. Probability that a house chosen at random from the data set has a pool is `r round(prob_pool,4)` and the (conditional) probability it has a fireplace, given that it has a pool is `r round(prob_fire_given_pool,4)`.
+
+
+```{r Probability_distribution_plot,echo=FALSE, error=FALSE, warning=FALSE , message=FALSE , fig.width=3, fig.height=2, fig.align='center', fig.cap="\\label{fig:fig1}Probability that a House has a pool"}
+
+    Probability_distribution_plot
+  
+```
+
+
+To find the probability that, out of 10 houses chosen at random from our data set, at least 3 will have a pool, we need to take a look at the probability distribution in Figure 2. This binomial distribution describes the probability of obtaining the number of pools in a fixed number houses (i.e. 10) chosen at random. Hence probability that at least 3 successes in a trial of 10 can be calculated by `1 - P(X < 3)` which comes out to `r round(probability_at_least_3_pools,4)`.
+
+Assuming that the data set provides a random sample of houses in the USA, the 95% confidence interval on the mean house price will be from `r formatted_confidence_interval[1]` to `r formatted_confidence_interval[2]`.
+
+
+### 3. Contingency tables and hypothesis tests
+
+```{r Contingency_hypothesis,echo=FALSE, error=FALSE, warning=FALSE, message=FALSE}
+
+#Test the hypothesis that the mean house price is greater if a house is on the waterfront.
+house_prices_waterfront <- trimmed_data$price[trimmed_data$waterfront == 1]
+house_prices_no_waterfront <- trimmed_data$price[trimmed_data$waterfront == 0]
+t_test_result <- t.test(house_prices_waterfront, house_prices_no_waterfront, alternative = "greater")
+p_value <- round(t_test_result$p.value,8)
+conf_interval <- round(t_test_result$conf.int,3)
+
+table_data <- data.frame("Statistic" = c("P-value", "Confidence Interval"),"Value" = c(p_value, paste0("[", conf_interval[1], ", ", conf_interval[2], "]")))
+
+#contingency_table
+contingency_table <- table(trimmed_data$fireplace, trimmed_data$pool)
+rownames(contingency_table) <- c("No fireplace", "Fireplace")
+colnames(contingency_table) <- c("No pool", "Pool")
+relative_freq_table <- prop.table(contingency_table) # Convert counts to relative frequencies
+
+# test whether a house having a fireplace is independent of whether it has a pool
+chi_square_test_result <- chisq.test(contingency_table)
+
+chi_square_result_df <- data.frame(Statistic = chi_square_test_result$statistic,p_value =     chi_square_test_result$p.value, Degrees_Freedom = chi_square_test_result$parameter,Method =    chi_square_test_result$method)
+
+```
+
+```{r t.test,echo=FALSE, error=FALSE, warning=FALSE, message=FALSE}
+
+table_data %>% kable(col.names=colnames(table_data),align = "c",caption="Two Sample t-test")
+
+```
+
+Now we are going to use t-test to check if the mean house price is greater if a house is on the waterfront, this will confidently tell us if there is a true difference in house price or just statistical sampling error. Our null hypothesis is that mean house price of houses on the waterfront is equal to the mean house price of houses not on the waterfront. The alternate would be that mean house price of houses on the waterfront is greater than the mean house price of houses not on the waterfront. Looking at the test results of two sample t-test in the Table on the right we see a p-value (`r round(t_test_result$p.value,8)`) closer to zero, hence rejecting the null hypothesis we can confidently say that the mean house price of houses on the waterfront is greater than those which are not on the waterfront.
+
+```{r relative_freq_table,echo=FALSE, error=FALSE, warning=FALSE, message=FALSE}
+
+relative_freq_table %>% kable(col.names=colnames(relative_freq_table), align = "c", caption = "Relative frequencies")
+
+```
+
+Table 5 shows the contingency table of relative frequencies for "Pool" and "No pool" categories according to whether a house has or hasn’t got a fireplace.
+
+We are going to use the Pearson's Chi-squared test to check if a house having a fireplace is independent of whether it has a pool, using a 5% significance level. Let our null hypothesis be house having a fireplace is independent of whether it has a pool and alternate will be house having a fireplace is not independent of whether it has a pool. Looking at the results in the Table 5, our p-value is `r round(chi_square_test_result$p.value,3)` less than 0.05 hence null hypothesis is rejected and alternate that there is a significant relationship between having a fireplace and having a pool stands true.
+
+
+```{r chi_square_result,echo=FALSE, error=FALSE, warning=FALSE, message=FALSE}
+
+chi_square_result_df %>% kable(col.names=colnames(chi_square_result_df), align = "c", caption="Chi-squared test results")
+
+```
+
+### 4. Simple Linear Regression
+
+```{r Simple_Linear_Regression,echo=FALSE, error=FALSE, warning=FALSE,message=FALSE}
+
+trimmed_data$log_trimmed_price <- log(trimmed_data$price) #taking log of price and sqft
+trimmed_data$log_sqft <- log(trimmed_data$sqft)
+
+sl_model <- lm(log_trimmed_price ~ log_sqft, data = trimmed_data) #regression model
+summary_info <- summary(sl_model) #regression summary
+
+intercept <- coef(sl_model)["(Intercept)"] #extracting intercept
+slope <- exp(coef(sl_model)["log_sqft"]) -1 # Exponentiating the coefficient to get the percent change
+
+# Scatter plot of data and fitted model
+scatter_plot <- ggplot(trimmed_data, aes(x = log_sqft, y = log_trimmed_price)) +
+  geom_point() +
+  labs(x = "ln(sqft)", y = "ln(price)") +
+  geom_smooth(method = "lm", formula = y ~ x, color = "red")
+
+# Residual plot
+residual_plot <- ggplot(trimmed_data, aes(x = log_sqft, y = resid(sl_model))) + geom_point() + 
+  labs(x = "ln(sqft)", y = "Residuals", title = "Residual Plot") + 
+  geom_hline(yintercept = 0, color = "blue")
+
+# QQ plot
+qq_plot <- ggplot(trimmed_data, aes(sample = resid(sl_model))) + stat_qq() + stat_qq_line(color = "red") +  labs(title = "QQ Plot of Residuals")
+
+```
+
+
+```{r lm_fitted_plot, echo=FALSE, error=FALSE, warning=FALSE ,message=FALSE, fig.width=2.8, fig.height= 2.3, fig.align='center', fig.cap="\\label{fig:fig1}Scatter plot with Fitted Model"}
+
+    scatter_plot
+
+```
+
+
+In the following section we are going to run simple linear regression with ln(price) as the response variable and ln(sqft) as our predictor. Plot in Figure 3. shows the fitted model. The intercept `r round(intercept,2)` tells us the house value (`r round(exp(intercept)-1,2)`) when area of the house is zero, this in itself is not a very meaningful value. However the slope `r round(slope,2)` tells us the percent increase in house price for each unit increase in the area (sqft) of the house.
+
+We can evaluate the performance of our regression model by looking at the plots in Figure 4. We see that residuals do not show any clear pattern and are randomly scattered around the horizontal line. The Q-Q plot shows that residuals are normally distributed and we could only see slight deviations in the tail, indicating that model generally captures the structure of the data.
+
+Low p-value of the coefficient (`r summary_info$coefficients["log_sqft", "Pr(>|t|)"]`) and high F-statistics (`r round(summary_info$fstatistic[1],2)`) also support the significance of the model. The multiple R-squared value is `r round(summary_info$r.squared,3)` which means approximately `r round(summary_info$r.squared,3)*100`% variance in house price is explained by the area of the house. Residual standard error of `r round(summary_info$sigma, 3)` also points towards a good fit of the model.
+
+
+```{r lm_misc_plot, echo=FALSE, error=FALSE, warning = FALSE , message = FALSE , fig.align='center', fig.width=8, fig.height=2.7,fig.cap="\\label{fig:fig1}Simple Linear Regression plots"}
+
+grid.arrange(residual_plot, qq_plot, ncol = 2, nrow = 1)
+
+```
+
+
+### 5. Multiple Linear Regression
+
+```{r Multiple_Linear_Regression, echo=FALSE, error=FALSE, warning=FALSE, message=FALSE, results='hide'}
+
+#converting categorical variables to factors
+trimmed_data$pool <- as.factor(trimmed_data$pool) 
+trimmed_data$style <- as.factor(trimmed_data$style)
+trimmed_data$fireplace <- as.factor(trimmed_data$fireplace)
+trimmed_data$waterfront <- as.factor(trimmed_data$waterfront)
+
+df_dummies_trimmed <- dummy_cols(trimmed_data,remove_first_dummy=TRUE) #adding the dummy columns for categorical variables
+df_dummies_trimmed <- df_dummies_trimmed%>%dplyr::select(-c("price","sqft","style","pool","fireplace","waterfront")) #removing the irrelevant columns
+
+full_model <- lm(log_trimmed_price ~., data = df_dummies_trimmed) #Full model regression
+fm_fitted_values <- fitted(full_model) # Fitted values
+fm_TestPred <- predict(full_model,df_dummies_trimmed) # use predict() to check model on testData
+fm_correlation <- cor(df_dummies_trimmed$log_trimmed_price ,fm_TestPred) #Full model correlation
+plot_data <- data.frame( Observed = df_dummies_trimmed$log_trimmed_price, Fitted = fm_fitted_values ) # Dataframe for plotting full model
+
+
+fm_AIC <- AIC(full_model) #AIC value of full model
+step_backward <- step.model <- MASS::stepAIC(full_model, direction="backward",trace = 0) #step-wise model selection
+
+# k fold validation
+set.seed(1)
+train_control <- trainControl(method = "cv", number = 3)
+model_full_cv <- train(log_trimmed_price ~., data = df_dummies_trimmed, method = "lm", trControl = train_control, metric = "RMSE")
+model_reduced_cv <- train(step_backward$call$formula, data = df_dummies_trimmed, method = "lm", trControl = train_control, metric = "RMSE")
+
+percent_change <- round(exp(model_reduced_cv$finalModel$coefficients)[-1]-1,2) #percent change per unit increase of each predictor
+
+rm_TestPred <- predict(model_reduced_cv,df_dummies_trimmed)  # use predict()  to check model on testData
+mis_fit_to_testData <- rm_TestPred-df_dummies_trimmed$log_trimmed_price  # these are the residuals for the test data fit
+
+rm_plot_data <- data.frame(Actual = df_dummies_trimmed$log_trimmed_price, Predicted = rm_TestPred, Residuals = mis_fit_to_testData) # Dataframe for plotting reduced model
+
+```
+
+In this section we will start with multiple linear regression. We set our categorical variables (pool, style, fireplace & waterfront) as factors and setup dummy columns. Our response variable will be ln(price) and all other variables will be the predictors. The results are shown in the table below.
+
+```{r ML_summary_table, echo=FALSE, error=FALSE, warning=FALSE, message=FALSE}
+
+full_model_coefficients <- summary(full_model)$coefficients[, c("Estimate", "Pr(>|t|)")]
+
+full_model_table <- data.frame(Estimated_Coefficient = full_model_coefficients[, 1], p_value = full_model_coefficients[, 2]) #data frame with coefficients, and p-values
+
+full_model_table$p_value <- format(full_model_table$p_value, scientific = TRUE) #display p-values in scientific format
+
+full_model_table %>% knitr::kable( col.names= colnames(full_model_table), align = "c", caption= "p-value Multiple linear regression") # Printing the table
+
+```
+
+From the table above we can see that predictors bedrooms, dom (days on monrket), style_3, 6 and 11 are insignificant with p-values less than 0.05, while style_4 is marginally significant. The predictors log_sqft (area of the house), age (how old the house is) and baths (no. of bathrooms) are amongst the most significant predictors.
+
+Now we will do stepwise model selection using AIC (Akaike Information Criterion) to produce a reduced model. This will automatically remove the variables based on their impact on the our AIC value and the goodness of fit of the model. We see that in our reduced model all the insignificant predictors (bedrooms, dom (days on market), style_3, 6 and 11) have been removed.
+
+As evident by the Table below, our RMSE and AIC values have improved from full model to reduced model, indicating a better model fit.
+
+```{r FM_vs_RM_table,echo=FALSE, error=FALSE, warning=FALSE, message=FALSE, fig.width=8, fig.height=2.7}
+
+table_fm_vs_rm <- data.frame(Category = c("Full Model", "Reduced Model"),RMSE = c(model_full_cv$results[[2]], model_reduced_cv$results[[2]]), AIC = c(AIC(model_full_cv$finalModel), AIC(model_reduced_cv$finalModel)))
+
+# Print the table
+table_fm_vs_rm %>% knitr::kable( col.names= colnames(table_fm_vs_rm), align = "c", caption= "Full model vs reduced model")
+
+```
+
+Figure 5 below shows the performance of our reduced model. Residual plot does not show any clear pattern and a good fit on QQ plot. 
+
+```{r ML_plots,echo=FALSE, error=FALSE, warning=FALSE, message=FALSE, fig.width=8, fig.height=2.7, fig.cap="\\label{fig:fig1}Multiple Linear Regression Regression plots (Reduced Model)"}
+
+# Plotting predicted vs. actual
+ml_predicted_vs_actual <- ggplot(rm_plot_data, aes(x = Actual, y = Predicted)) +
+  geom_point() +
+  geom_abline(intercept = 0, slope = 1, color = "red") +
+  labs(x = "Actual", y = "Predicted") +
+  ggtitle("Predicted vs. Actual")
+
+# Plotting residuals vs. predictions
+ml_residual_vs_predicted <- ggplot(rm_plot_data, aes(x = Predicted, y = Residuals)) +
+  geom_point() +
+  geom_abline(intercept = 0, slope = 0, color = "red") +
+  labs(x = "Predicted", y = "Residuals") +
+  ggtitle("Residuals vs. Predictions")
+
+# QQ plot for normality of residuals
+ml_qqnorm <- ggplot(data.frame(Residuals = mis_fit_to_testData), aes(sample = Residuals)) +
+  stat_qq() +
+  stat_qq_line(color = "red") +
+  labs(title = "QQ Plot of Residuals")
+
+grid.arrange(ml_predicted_vs_actual, ml_residual_vs_predicted, ml_qqnorm, ncol = 3, nrow = 1)
+
+```
+
+The residual standard error of `r round(summary(model_reduced_cv)$sigma,3)` signifies that predicted values are closer to observed values resulting in a precise model. The multiple R-squared value `r round(summary(model_reduced_cv)$r.squared,3)` tells us that `r round(summary(model_reduced_cv)$r.squared,3)*100`% variance in the house price is explained by our model.
+Table below shows the percent change in house price for per unit change in the predictors.
+
+```{r RM_percent_change_plots,echo=FALSE, error=FALSE, warning=FALSE, message=FALSE, fig.width=8, fig.height=2.7}
+
+percent_change_df <- data.frame(percent_change) #create dataframe
+percent_change_wide <- t(percent_change_df)# Transpose the data frame
+percent_change_wide %>% knitr::kable( col.names= colnames(percent_change_wide), align = "c", caption= "Percent change in house price") # Printing the table
+
+```
+
+
+### Conclusion
+
+During our analysis we have checked that there is a significant difference in the mean house prices of the house that are on the waterfront compared to those that are not. We have also established a dependence between having a fireplace and a pool. We have established that area of a house is a significant predictor of it's price. And we have formed a multivariate model with other significant predictors of the house price.
+
+
